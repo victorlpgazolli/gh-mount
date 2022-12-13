@@ -1,0 +1,11 @@
+[package]
+name = "githubFUSE"
+version = "0.1.0"
+#edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+fuse = "0.3.1"
+time = "0.1.44"
+libc = "0.2"
+serde_json = "1.0"
