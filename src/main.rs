@@ -6,7 +6,7 @@ use std::env;
 use std::ffi::OsStr;
 use libc::c_int;
 use std::path::Path;
-use libc::{ ENOENT,ENOSYS};
+use libc::{EEXIST,ENOENT,ENOSYS};
 use time::Timespec;
 use fuse::{FileAttr, FileType, Filesystem, Request, ReplyAttr, ReplyWrite,ReplyData, ReplyEntry, ReplyDirectory,  ReplyEmpty,ReplyStatfs, ReplyOpen};
 use std::process::Command;
@@ -210,9 +210,11 @@ impl Filesystem for GithubVirtualFileSystem {
                     println!("not found, fetching {}",name.to_str().unwrap());
                     self.add(name.to_str().unwrap());
                     reply.error(ENOENT);
+                    return;
                 };
                 if parent == 2 {
                     println!("repo!");
+                    reply.error(EEXIST);
                     return;
                 };
                 return;
