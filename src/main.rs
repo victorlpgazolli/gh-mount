@@ -480,21 +480,23 @@ impl Filesystem for GithubVirtualFileSystem {
         let inodesPerTypes = self.getInodesPerType();
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
         println!("{}",currentPathType.as_str());
-        reply.add(1, 0, FileType::Directory, &Path::new("."));
-        reply.add(1, 1, FileType::Directory, &Path::new(".."));
+        if _offset == 0 {
+            reply.add(_ino, 0, FileType::Directory, &Path::new("."));
+            reply.add(_ino, 1, FileType::Directory, &Path::new(".."));
+        }
         match currentPathType {
             GithubVirtualFileSystemPath::UserPath => {
                 let repositories = self.getRepositoriesFromUser(fullRepositoryName);
                 for (repositoryName, inode) in repositories.iter() {
                     println!("reply.add {}",repositoryName);
-                    reply.add(_ino, (*inode) as i64, FileType::Directory, &Path::new(repositoryName));
+                    reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(repositoryName));
                 }
             },
             GithubVirtualFileSystemPath::RepositoryPath => {
                 let files = self.getFilesFromRepo(fullRepositoryName);
                 for (filename, inode) in files.iter() {
                     println!("reply.add {}",filename);
-                    reply.add(_ino, (*inode) as i64, FileType::Directory, &Path::new(filename));
+                    reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(filename));
                 }
             },
             GithubVirtualFileSystemPath::FilePath => {},
