@@ -49,8 +49,11 @@ impl GithubVirtualFileSystem{
             attrs: attrs
         }
     }
-    fn add(&mut self, username: &str) -> () {
+    fn addUser(&mut self, username: &str) -> () {
         let args = ["repo", "list", username, "--json", "name", "--source", "--jq", ".[].name"];
+        if username == ".git" {
+            return;
+        }
         println!("args={:?}", args);
        let listOutput = Command::new("gh")
             .args(args)
@@ -63,10 +66,30 @@ impl GithubVirtualFileSystem{
         self.repositoriesPerUser=repositoriesPerUser;
          let repos = self.repositoriesPerUser.get(username).unwrap();
             
-        let mut index = self.inodes.len()as u64;
+        let mut index = self.inodes.len() as u64;
+        let userInode: u64 = index + 1;
+        let ts = Timespec::new(0, 0);
+        let userAttr = FileAttr {
+            ino: userInode,
+            size: username.to_string().len() as u64,
+            blocks: 0,
+            atime: ts,
+            mtime: ts,
+            ctime: ts,
+            crtime: ts,
+            kind: FileType::Directory,
+            perm: 0o644,
+            nlink: 0,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+            flags: 0,
+        };
+        self.inodes.insert(username.to_string(), userAttr.ino);
+        self.attrs.insert(userInode, userAttr);
         for repoName in repos.iter() {
             if repoName.len() == 0 {continue};
-            let newInode: u64 = index + 1;
+            let newInode: u64 =self.inodes.len() as u64 + 1;
             let key = username.to_string() + "/" + &repoName.to_string();
             let ts = Timespec::new(0, 0);
             let attr = FileAttr {
@@ -88,6 +111,9 @@ impl GithubVirtualFileSystem{
             self.inodes.insert(key, attr.ino);
             self.attrs.insert(newInode, attr);
         }
+    }
+    fn addRepoFiles(&mut self, repoName: &str) -> () { 
+
     }
 }
 
@@ -199,20 +225,24 @@ impl Filesystem for GithubVirtualFileSystem {
     }
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let ts = time::now().to_timespec();
-        
         println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
         let (repoName, inode) =  match self.inodes
-            .iter()
-            .find(|(repo, index)| repo.starts_with(&name.to_str().unwrap().to_string())) {
+        .iter()
+        .find(|(repo, index)| {
+            let isUser = name.to_str().unwrap().to_string().eq(repo.to_owned());
+            let isRepo = !isUser && repo.ends_with(&name.to_str().unwrap().to_string());
+            println!("found={:?}", isUser || isRepo);
+            return isUser || isRepo;
+        }) {
             Some(inode) => inode,
             None => {
                 if parent == 1 {
                     println!("not found, fetching {}",name.to_str().unwrap());
-                    self.add(name.to_str().unwrap());
+                    self.addUser(name.to_str().unwrap());
                     reply.error(ENOENT);
                     return;
                 };
-                if parent == 2 {
+                if parent > 1 {
                     println!("repo!");
                     reply.error(EEXIST);
                     return;
@@ -225,6 +255,9 @@ impl Filesystem for GithubVirtualFileSystem {
             Some(attr) => {
                 let ttl = Timespec::new(1, 0);
                 println!("attr found! inode: {}",inode);
+                if *inode > 1 {
+                    self.addRepoFiles(name.to_str().unwrap());
+                 }
                 reply.entry(&ttl, attr, 0);
             },
             None => reply.error(ENOENT),
@@ -242,11 +275,17 @@ impl Filesystem for GithubVirtualFileSystem {
             reply.add(1, 0, FileType::Directory, &Path::new("."));
             reply.add(1, 1, FileType::Directory, &Path::new(".."));
             let mut index = 2;
-            for (repositoryName, inode) in self.inodes.iter() {
+            for (repositoryName, &inode) in self.inodes.iter() {
                 let userAndRepo: Vec<&str> = repositoryName.split("/").collect();
+                let isViewingUserDirectory = userAndRepo.len() == 1;
                 let user = userAndRepo[0];
+                if isViewingUserDirectory {
+                    reply.add(1, inode as i64, FileType::Directory, &Path::new(user));
+                    index += 1;
+                    continue;
+                }
                 let repo = userAndRepo[1];
-                reply.add(1, index, FileType::Directory, &Path::new(repo));
+                reply.add(1, inode  as i64, FileType::Directory, &Path::new(repo));
                 index += 1;
             }
         }
