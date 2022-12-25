@@ -301,8 +301,8 @@ impl Filesystem for GithubVirtualFileSystem {
     }
     fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {
         println!(
-            "forget(ino={}, _req={:?}, _nlookup={})",
-            _ino, _req, _nlookup
+            "forget(ino={}, _nlookup={})",
+            _ino, _nlookup
         );
     }
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
@@ -430,33 +430,45 @@ impl Filesystem for GithubVirtualFileSystem {
         println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
 
         let ts = time::now().to_timespec();
-        let inodesPerTypes = self.getInodesPerType();
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(parent);
         let inode = match currentPathType {
             GithubVirtualFileSystemPath::UserPath => {
+                let mut desiredInode = 0;
                 let repositories = self.getRepositoriesFromUser(fullRepositoryName);
+                println!("{:?}",repositories);
                 for (repositoryName, inode) in repositories.iter() {
                     let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&repositoryName);
                     let isSameRepo = fullpathSplitted[1].ends_with(&name.to_str().unwrap().to_string());
                     if !isSameRepo {  continue;   };
-                    return inode;
+                    desiredInode = *inode;
+                    break;
                 }
+                desiredInode
             },
             GithubVirtualFileSystemPath::RepositoryPath => {
-                
+                let exampleInode = 0;
+                exampleInode
             },
-            GithubVirtualFileSystemPath::FilePath => {},
+            GithubVirtualFileSystemPath::FilePath => {
+                let exampleInode = 0;
+                exampleInode
+            },
             GithubVirtualFileSystemPath::None => {
+                let repositories = self.getRepositoriesFromUser(fullRepositoryName);
+                self.addUser(name.to_str().unwrap());
+                let inodesPerTypes = self.getInodesPerType();
+                let mut desiredInode = 0;
                 for (user, inode) in inodesPerTypes.usersInodes.iter() {
                     let isSameUser = name.to_str().unwrap().to_string().eq(&user.to_owned());
                     if !isSameUser {  continue;   };
-                    return inode;
+                    desiredInode = *inode;
+                    break;
                 }
+                desiredInode
             },
         };
        
-
-        match self.attrs.get(inode) {
+        match self.attrs.get(&inode) {
             Some(attr) => {
                 let ttl = Timespec::new(1, 0);
                 // println!("attr found! inode: {}",inode);
@@ -494,7 +506,6 @@ impl Filesystem for GithubVirtualFileSystem {
                 let repositories = self.getRepositoriesFromUser(fullRepositoryName);
                 for (repositoryName, inode) in repositories.iter() {
                     let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&repositoryName);
-                    println!("inode ={} reply.add {}",inode, fullpathSplitted[1]);
                     if _offset == 0 {
                         reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(fullpathSplitted[1]));
                     }
@@ -504,7 +515,6 @@ impl Filesystem for GithubVirtualFileSystem {
                 let files = self.getFilesFromRepo(fullRepositoryName);
                 for (filename, inode) in files.iter() {
                     // let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&filename);
-                    println!("inode ={} reply.add {}",inode, filename);
                     if _offset == 0 {
                         reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(filename));
                     }
