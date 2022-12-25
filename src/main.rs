@@ -6,7 +6,7 @@ use fuse::{
     ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
 use libc::c_int;
-use libc::{EEXIST, ENOENT, ENOSYS};
+use libc::{EEXIST, ENOENT, ENOSYS, EPERM};
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
@@ -427,29 +427,34 @@ impl Filesystem for GithubVirtualFileSystem {
         reply.error(ENOSYS)
     }
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let ts = time::now().to_timespec();
-        // println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
-        let (repoName, inode) = match self.inodes.iter().find(|(repo, index)| {
-            let isUser = name.to_str().unwrap().to_string().eq(repo.to_owned());
-            let isRepo = !isUser && repo.ends_with(&name.to_str().unwrap().to_string());
+        println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
 
-            return isUser || isRepo;
-        }) {
-            Some(inode) => inode,
-            None => {
-                if parent == 1 {
-                    println!("not found, fetching {}", name.to_str().unwrap());
-                    self.addUser(name.to_str().unwrap());
-                    reply.error(ENOENT);
-                    return;
-                };
-                if parent > 1 {
-                    reply.error(EEXIST);
-                    return;
-                };
-                return;
-            }
+        let ts = time::now().to_timespec();
+        let inodesPerTypes = self.getInodesPerType();
+        let (currentPathType, fullRepositoryName) = self.getCurrentPathType(parent);
+        let inode = match currentPathType {
+            GithubVirtualFileSystemPath::UserPath => {
+                let repositories = self.getRepositoriesFromUser(fullRepositoryName);
+                for (repositoryName, inode) in repositories.iter() {
+                    let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&repositoryName);
+                    let isSameRepo = fullpathSplitted[1].ends_with(&name.to_str().unwrap().to_string());
+                    if !isSameRepo {  continue;   };
+                    return inode;
+                }
+            },
+            GithubVirtualFileSystemPath::RepositoryPath => {
+                
+            },
+            GithubVirtualFileSystemPath::FilePath => {},
+            GithubVirtualFileSystemPath::None => {
+                for (user, inode) in inodesPerTypes.usersInodes.iter() {
+                    let isSameUser = name.to_str().unwrap().to_string().eq(&user.to_owned());
+                    if !isSameUser {  continue;   };
+                    return inode;
+                }
+            },
         };
+       
 
         match self.attrs.get(inode) {
             Some(attr) => {
@@ -488,19 +493,28 @@ impl Filesystem for GithubVirtualFileSystem {
             GithubVirtualFileSystemPath::UserPath => {
                 let repositories = self.getRepositoriesFromUser(fullRepositoryName);
                 for (repositoryName, inode) in repositories.iter() {
-                    println!("reply.add {}",repositoryName);
-                    reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(repositoryName));
+                    let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&repositoryName);
+                    println!("inode ={} reply.add {}",inode, fullpathSplitted[1]);
+                    if _offset == 0 {
+                        reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(fullpathSplitted[1]));
+                    }
                 }
             },
             GithubVirtualFileSystemPath::RepositoryPath => {
                 let files = self.getFilesFromRepo(fullRepositoryName);
                 for (filename, inode) in files.iter() {
-                    println!("reply.add {}",filename);
-                    reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(filename));
+                    // let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&filename);
+                    println!("inode ={} reply.add {}",inode, filename);
+                    if _offset == 0 {
+                        reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(filename));
+                    }
                 }
             },
             GithubVirtualFileSystemPath::FilePath => {},
-            GithubVirtualFileSystemPath::None => {},
+            GithubVirtualFileSystemPath::None => {
+                reply.error(EPERM);
+                return;
+            },
         };
         reply.ok();
     }
@@ -525,6 +539,19 @@ impl Filesystem for GithubVirtualFileSystem {
     }
     fn access(&mut self, _req: &Request, _ino: u64, _mask: u32, reply: ReplyEmpty) {
         println!("access(ino={}, _mask={})", _ino, _mask);
+        let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
+        match currentPathType {
+            GithubVirtualFileSystemPath::UserPath => {
+      
+            },
+            GithubVirtualFileSystemPath::RepositoryPath => {
+        
+            },
+            GithubVirtualFileSystemPath::FilePath => {},
+            GithubVirtualFileSystemPath::None => {
+       
+            },
+        };
         reply.ok()
     }
 }
