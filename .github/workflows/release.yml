@@ -7,13 +7,11 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release-docker-image:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
