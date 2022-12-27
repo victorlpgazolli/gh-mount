@@ -2,6 +2,6 @@
 
 mkdir -p ./dist
 
-cargo build --release --locked
+cargo build --release
 
-mv target/release/gh-mount "./dist/linux-amd64"
+mv target/release/gh-mount "./dist/linux-arm64"

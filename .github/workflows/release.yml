@@ -49,9 +49,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v2
-      - uses: cli/gh-extension-precompile@v1
-        with:
-          build_script_override: "./scripts/build.sh"
+      - name: build package
+        run: bash ./scripts/build.sh
+      - name: publish package
+        run: bash ./scripts/publish.sh
   # release-macos:
   #   runs-on: macos-latest
   #   steps:
