@@ -1,7 +1,7 @@
-extern crate fuse;
+extern crate fuser;
 extern crate libc;
 extern crate time;
-use fuse::{
+use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, ReplyStatfs, ReplyWrite, Request,
 };
@@ -12,7 +12,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
-use time::Timespec;
+use std::time::{Duration,SystemTime};
 use std::option::Option;
 
 enum GithubVirtualFileSystemPath {
@@ -46,7 +46,7 @@ impl GithubVirtualFileSystem {
     fn new() -> GithubVirtualFileSystem {
         let mut inodes = HashMap::new();
         let mut attrs = HashMap::new();
-        let ts = Timespec::new(0, 0);
+        let ts = SystemTime::now();
         let attr = FileAttr {
             ino: 1,
             size: 0,
@@ -62,6 +62,7 @@ impl GithubVirtualFileSystem {
             gid: 0,
             rdev: 0,
             flags: 0,
+            blksize: 0,
         };
         attrs.insert(1, attr);
         inodes.insert("/".to_string(), 1);
@@ -183,10 +184,11 @@ impl GithubVirtualFileSystem {
         let args = [
             "repo", "list", username, "--json", "name", "--source", "--jq", ".[].name",
         ];
-        if username == ".git" {
+        let ignoreUsers = [".git"];
+        if ignoreUsers.contains(&username) {
             return;
         }
-        // println!("args={:?}", args);
+        println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
             .output()
@@ -200,7 +202,7 @@ impl GithubVirtualFileSystem {
 
         let mut index = self.inodes.len() as u64;
         let userInode: u64 = index + 1;
-        let ts = Timespec::new(0, 0);
+        let ts = SystemTime::now();
         let userAttr = FileAttr {
             ino: userInode,
             size: username.to_string().len() as u64,
@@ -216,6 +218,7 @@ impl GithubVirtualFileSystem {
             gid: 0,
             rdev: 0,
             flags: 0,
+            blksize: 0,
         };
         self.inodes.insert(username.to_string(), userAttr.ino);
         self.attrs.insert(userInode, userAttr);
@@ -225,7 +228,7 @@ impl GithubVirtualFileSystem {
             };
             let newInode: u64 = self.inodes.len() as u64 + 1;
             let key = self.formatRepositoryName(username, repoName);
-            let ts = Timespec::new(0, 0);
+            let ts = SystemTime::now();
             let attr = FileAttr {
                 ino: newInode,
                 size: repoName.len() as u64,
@@ -241,6 +244,7 @@ impl GithubVirtualFileSystem {
                 gid: 0,
                 rdev: 0,
                 flags: 0,
+                blksize: 0,
             };
             if !self.inodes.contains_key(&key) { self.inodes.insert(key, attr.ino); } ;
             if !self.attrs.contains_key(&newInode) { self.attrs.insert(newInode, attr); } ;
@@ -253,7 +257,7 @@ impl GithubVirtualFileSystem {
         let args = [
             "api", &format!("repos/{}/{}/git/trees/HEAD", username, repoName), "--jq", ".tree[].path"
         ];
-        // println!("args={:?}", args);
+        println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
             .output()
@@ -266,7 +270,7 @@ impl GithubVirtualFileSystem {
             };
             let newInode: u64 = self.inodes.len() as u64 + 1;
             let key = self.formatRepositoryName(username, repoName) + "/" +&filename;
-            let ts = Timespec::new(0, 0);
+            let ts = SystemTime::now();
             let attr = FileAttr {
                 ino: newInode,
                 size: repoName.len() as u64,
@@ -282,6 +286,7 @@ impl GithubVirtualFileSystem {
                 gid: 0,
                 rdev: 0,
                 flags: 0,
+                blksize: 0,
             };
             if !self.inodes.contains_key(&key) { self.inodes.insert(key, attr.ino); } ;
             if !self.attrs.contains_key(&newInode) { self.attrs.insert(newInode, attr); } ;
@@ -291,22 +296,9 @@ impl GithubVirtualFileSystem {
 }
 
 impl Filesystem for GithubVirtualFileSystem {
-    fn init(&mut self, _req: &Request) -> Result<(), c_int> {
-        println!("init(_req={:?})", _req);
-        return Ok(());
-    }
-    fn destroy(&mut self, _req: &Request) {
-        println!("destroy");
-    }
-    fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {
-        println!(
-            "forget(ino={}, _nlookup={})",
-            _ino, _nlookup
-        );
-    }
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         println!("getattr(ino={})", _ino);
-        let ts = Timespec::new(0, 0);
+        let ts = SystemTime::now();
         let attr = FileAttr {
             ino: _ino,
             size: 0,
@@ -322,49 +314,9 @@ impl Filesystem for GithubVirtualFileSystem {
             gid: 0,
             rdev: 0,
             flags: 0,
+            blksize: 0,
         };
-        let ttl = Timespec::new(1, 0);
-        reply.attr(&ttl, &attr);
-    }
-    fn setattr(
-        &mut self,
-        _req: &Request,
-        _ino: u64,
-        _mode: Option<u32>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
-        _size: Option<u64>,
-        _atime: Option<Timespec>,
-        _mtime: Option<Timespec>,
-        _fh: Option<u64>,
-        _crtime: Option<Timespec>,
-        _chgtime: Option<Timespec>,
-        _bkuptime: Option<Timespec>,
-        _flags: Option<u32>,
-        reply: ReplyAttr,
-    ) {
-        println!(
-            "setattr(_ino={},_mode={:?},_uid={:?},_gid={:?},_size={:?},_atime={:?},_mtime={:?})",
-            _ino, _mode, _uid, _gid, _size, _atime, _mtime
-        );
-        let ts = Timespec::new(0, 0);
-        let attr = FileAttr {
-            ino: _ino,
-            size: 0,
-            blocks: 0,
-            atime: ts,
-            mtime: ts,
-            ctime: ts,
-            crtime: ts,
-            kind: FileType::RegularFile,
-            perm: 0o644,
-            nlink: 0,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-            flags: 0,
-        };
-        let ttl = Timespec::new(1, 0);
+        let ttl = Duration::new(0,0);
         reply.attr(&ttl, &attr);
     }
     fn readlink(&mut self, _req: &Request, _ino: u64, reply: ReplyData) {
@@ -377,58 +329,9 @@ impl Filesystem for GithubVirtualFileSystem {
         let pathToPersist = homeUser + &"/.config/gh_mount/".to_owned() + &fullRepositoryName.to_owned();
         reply.data(pathToPersist.as_bytes());
     }
-    fn open(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, _req: &Request, _ino: u64, _flags: i32, reply: ReplyOpen) {
         println!("open(_ino={}, _flags={})", _ino, _flags);
-        reply.opened(_ino, _flags);
-    }
-    fn read(
-        &mut self,
-        _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
-        _size: u32,
-        reply: ReplyData,
-    ) {
-        println!("read");
-        reply.error(ENOSYS)
-    }
-    fn write(
-        &mut self,
-        _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _offset: i64,
-        _data: &[u8],
-        _flags: u32,
-        reply: ReplyWrite,
-    ) {
-        println!("write");
-        reply.error(ENOSYS)
-    }
-    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        println!(
-            "flush(_ino={}, _fh={}, _lock_owner={})",
-            _ino, _fh, _lock_owner
-        );
-        reply.error(ENOSYS)
-    }
-    fn release(
-        &mut self,
-        _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
-        _flush: bool,
-        reply: ReplyEmpty,
-    ) {
-        println!("release");
-        reply.error(ENOSYS)
-    }
-    fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
-        println!("fsync");
-        reply.error(ENOSYS)
+        reply.opened(_ino, _flags as u32);
     }
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
@@ -474,7 +377,7 @@ impl Filesystem for GithubVirtualFileSystem {
         match self.attrs.get(&inode) {
             Some(attr) => {
                 let (currentPathType, fullRepositoryName) = self.getCurrentPathType(inode);
-                let ttl = Timespec::new(1, 0);
+                let ttl = Duration::new(0,0);
                 let homeUser = match env::home_dir() {
                     Some(path) => path.display().to_string(),
                     None => ".".to_owned(),
@@ -501,10 +404,10 @@ impl Filesystem for GithubVirtualFileSystem {
             None => reply.error(ENOENT),
         };
     }
-    fn opendir(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
+    fn opendir(&mut self, _req: &Request, _ino: u64, _flags: i32, reply: ReplyOpen) {
         println!("opendir(ino={}, _flags={})", _ino, _flags);
 
-        reply.opened(_ino, _flags);
+        reply.opened(_ino, _flags as u32);
     }
     fn readdir(
         &mut self,
@@ -516,6 +419,7 @@ impl Filesystem for GithubVirtualFileSystem {
     ) {
         println!("readdir(ino={}, _fh={}, _offset={})", _ino, _fh, _offset);
         let inodesPerTypes = self.getInodesPerType();
+        println!("{:?}", inodesPerTypes.repositoriesInodes);
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
 
         if _offset == 0 {
@@ -548,26 +452,7 @@ impl Filesystem for GithubVirtualFileSystem {
         };
         reply.ok();
     }
-    fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
-        println!("releasedir(ino={}, _fh={}, _flags={})", _ino, _fh, _flags);
-        reply.error(ENOSYS)
-    }
-    fn fsyncdir(
-        &mut self,
-        _req: &Request,
-        _ino: u64,
-        _fh: u64,
-        _datasync: bool,
-        reply: ReplyEmpty,
-    ) {
-        println!("fsyncdir");
-        reply.error(ENOSYS)
-    }
-    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
-        println!("statfs");
-        reply.error(ENOSYS)
-    }
-    fn access(&mut self, _req: &Request, _ino: u64, _mask: u32, reply: ReplyEmpty) {
+    fn access(&mut self, _req: &Request, _ino: u64, _mask: i32, reply: ReplyEmpty) {
         println!("access(ino={}, _mask={})", _ino, _mask);
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
         match currentPathType {
@@ -591,7 +476,7 @@ impl Filesystem for GithubVirtualFileSystem {
                 let args = [
                     "repo", "clone", fullRepositoryName, "--", &pathToPersist
                 ];
-
+                println!("args={:?}", args);
                 let listOutput = Command::new("gh")
                     .args(args)
                     .output()
@@ -620,5 +505,5 @@ fn main() {
     };
     let fs = GithubVirtualFileSystem::new();
 
-    fuse::mount(fs, &mountpoint, &[]);
+    fuser::mount2(fs, &mountpoint, &[]);
 }
