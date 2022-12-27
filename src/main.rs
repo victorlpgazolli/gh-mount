@@ -188,7 +188,7 @@ impl GithubVirtualFileSystem {
         if username == ".git" {
             return;
         }
-        println!("args={:?}", args);
+        // println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
             .output()
@@ -244,8 +244,8 @@ impl GithubVirtualFileSystem {
                 rdev: 0,
                 flags: 0,
             };
-            self.inodes.insert(key, attr.ino);
-            self.attrs.insert(newInode, attr);
+            if !self.inodes.contains_key(&key) { self.inodes.insert(key, attr.ino); } ;
+            if !self.attrs.contains_key(&newInode) { self.attrs.insert(newInode, attr); } ;
         }
     }
     fn addRepoFiles(&mut self, fullRepositoryName: &str) -> () {
@@ -255,7 +255,7 @@ impl GithubVirtualFileSystem {
         let args = [
             "api", &format!("repos/{}/{}/git/trees/HEAD", username, repoName), "--jq", ".tree[].path"
         ];
-        println!("args={:?}", args);
+        // println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
             .output()
@@ -285,8 +285,9 @@ impl GithubVirtualFileSystem {
                 rdev: 0,
                 flags: 0,
             };
-            self.inodes.insert(key, attr.ino);
-            self.attrs.insert(newInode, attr);
+            if !self.inodes.contains_key(&key) { self.inodes.insert(key, attr.ino); } ;
+            if !self.attrs.contains_key(&newInode) { self.attrs.insert(newInode, attr); } ;
+            
         }
     }
 }
@@ -370,8 +371,13 @@ impl Filesystem for GithubVirtualFileSystem {
     }
     fn readlink(&mut self, _req: &Request, _ino: u64, reply: ReplyData) {
         println!("readlink(_ino={})", _ino);
-        let path = "../..";
-        reply.data(path.as_bytes());
+        let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
+        let homeUser = match env::home_dir() {
+            Some(path) => path.display().to_string(),
+            None => ".".to_owned(),
+        };
+        let pathToPersist = homeUser + &"/.config/gh_mount/".to_owned() + &fullRepositoryName.to_owned();
+        reply.data(pathToPersist.as_bytes());
     }
     fn open(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         println!("open(_ino={}, _flags={})", _ino, _flags);
@@ -435,10 +441,9 @@ impl Filesystem for GithubVirtualFileSystem {
             GithubVirtualFileSystemPath::UserPath => {
                 let mut desiredInode = 0;
                 let repositories = self.getRepositoriesFromUser(fullRepositoryName);
-                println!("{:?}",repositories);
                 for (repositoryName, inode) in repositories.iter() {
                     let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&repositoryName);
-                    let isSameRepo = fullpathSplitted[1].ends_with(&name.to_str().unwrap().to_string());
+                    let isSameRepo = fullpathSplitted[1].eq(&name.to_str().unwrap().to_string());
                     if !isSameRepo {  continue;   };
                     desiredInode = *inode;
                     break;
@@ -470,12 +475,30 @@ impl Filesystem for GithubVirtualFileSystem {
        
         match self.attrs.get(&inode) {
             Some(attr) => {
+                let (currentPathType, fullRepositoryName) = self.getCurrentPathType(inode);
                 let ttl = Timespec::new(1, 0);
-                // println!("attr found! inode: {}",inode);
-                // if *inode > 1 {
-                //     self.addRepoFiles(name.to_str().unwrap());
-                //  }
-                reply.entry(&ttl, attr, 0);
+                let homeUser = match env::home_dir() {
+                    Some(path) => path.display().to_string(),
+                    None => ".".to_owned(),
+                };
+                let pathToPersist = homeUser + &"/.config/gh_mount/".to_owned() + &fullRepositoryName.to_owned();
+                let hasToBeASymlink = match currentPathType {
+                    GithubVirtualFileSystemPath::UserPath => false,
+                    GithubVirtualFileSystemPath::RepositoryPath => {
+                        let pathAlreadyExists = Path::new(&pathToPersist).exists();
+                        pathAlreadyExists
+                    },
+                    GithubVirtualFileSystemPath::FilePath => false,
+                    GithubVirtualFileSystemPath::None => false,
+                };
+                if !hasToBeASymlink {
+                    reply.entry(&ttl, attr, 0);
+                    return;
+                }
+                let mut newAttr = attr.clone();
+                newAttr.kind = FileType::Symlink;
+           
+                reply.entry(&ttl, &newAttr, 0);
             }
             None => reply.error(ENOENT),
         };
@@ -496,7 +519,7 @@ impl Filesystem for GithubVirtualFileSystem {
         println!("readdir(ino={}, _fh={}, _offset={})", _ino, _fh, _offset);
         let inodesPerTypes = self.getInodesPerType();
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
-        println!("{}",currentPathType.as_str());
+
         if _offset == 0 {
             reply.add(_ino, 0, FileType::Directory, &Path::new("."));
             reply.add(_ino, 1, FileType::Directory, &Path::new(".."));
@@ -514,7 +537,6 @@ impl Filesystem for GithubVirtualFileSystem {
             GithubVirtualFileSystemPath::RepositoryPath => {
                 let files = self.getFilesFromRepo(fullRepositoryName);
                 for (filename, inode) in files.iter() {
-                    // let fullpathSplitted = GithubVirtualFileSystem::parseRepositoryName(&filename);
                     if _offset == 0 {
                         reply.add(*inode, (*inode) as i64, FileType::Directory, &Path::new(filename));
                     }
@@ -555,7 +577,31 @@ impl Filesystem for GithubVirtualFileSystem {
       
             },
             GithubVirtualFileSystemPath::RepositoryPath => {
-        
+                let homeUser = match env::home_dir() {
+                    Some(path) => path.display().to_string(),
+                    None => ".".to_owned(),
+                };
+                let pathToPersist = homeUser + &"/.config/gh_mount/".to_owned() + &fullRepositoryName.to_owned();
+                let createPersistPathArgs = [
+                    "-p", &pathToPersist
+                ];
+                Command::new("mkdir")
+                    .args(createPersistPathArgs)
+                    .output()
+                    .expect(format!("Error when running: mkdir {:?}", createPersistPathArgs.join(" ").as_str()).as_str());
+
+                let args = [
+                    "repo", "clone", fullRepositoryName, "--", &pathToPersist
+                ];
+
+                let listOutput = Command::new("gh")
+                    .args(args)
+                    .output()
+                    .expect(format!("Error when running: gh {:?}", args.join(" ").as_str()).as_str());
+                let stdout = String::from_utf8(listOutput.stdout).unwrap();
+                let mut pathAttr: FileAttr = *self.attrs.get(&_ino).unwrap();
+                pathAttr.kind = FileType::Symlink;
+                self.attrs.insert(_ino, pathAttr);
             },
             GithubVirtualFileSystemPath::FilePath => {},
             GithubVirtualFileSystemPath::None => {
