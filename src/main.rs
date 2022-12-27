@@ -181,14 +181,21 @@ impl GithubVirtualFileSystem {
         return "";
     }
     fn addUser(&mut self, username: &str) -> () {
+        println!("{}",username);
         let args = [
             "repo", "list", username, "--json", "name", "--source", "--jq", ".[].name",
         ];
-        let ignoreUsers = [".git"];
-        if ignoreUsers.contains(&username) {
+        let allUsers = self.getInodesPerType().usersInodes;
+        let ignoreUsernames = [
+            ".git",
+            "HEAD",
+            ".hq",
+        ];
+        
+        if ignoreUsernames.contains(&username) || allUsers.contains_key(username) {
             return;
         }
-        println!("args={:?}", args);
+       // println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
             .output()
@@ -257,7 +264,7 @@ impl GithubVirtualFileSystem {
         let args = [
             "api", &format!("repos/{}/{}/git/trees/HEAD", username, repoName), "--jq", ".tree[].path"
         ];
-        println!("args={:?}", args);
+       // println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
             .output()
@@ -297,7 +304,7 @@ impl GithubVirtualFileSystem {
 
 impl Filesystem for GithubVirtualFileSystem {
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
-        println!("getattr(ino={})", _ino);
+       // println!("getattr(ino={})", _ino);
         let ts = SystemTime::now();
         let attr = FileAttr {
             ino: _ino,
@@ -320,7 +327,7 @@ impl Filesystem for GithubVirtualFileSystem {
         reply.attr(&ttl, &attr);
     }
     fn readlink(&mut self, _req: &Request, _ino: u64, reply: ReplyData) {
-        println!("readlink(_ino={})", _ino);
+       // println!("readlink(_ino={})", _ino);
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
         let homeUser = match env::home_dir() {
             Some(path) => path.display().to_string(),
@@ -330,11 +337,11 @@ impl Filesystem for GithubVirtualFileSystem {
         reply.data(pathToPersist.as_bytes());
     }
     fn open(&mut self, _req: &Request, _ino: u64, _flags: i32, reply: ReplyOpen) {
-        println!("open(_ino={}, _flags={})", _ino, _flags);
+       // println!("open(_ino={}, _flags={})", _ino, _flags);
         reply.opened(_ino, _flags as u32);
     }
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
+       // println!("lookup(parent={}, name={})", parent, name.to_str().unwrap());
 
         let ts = time::now().to_timespec();
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(parent);
@@ -405,7 +412,7 @@ impl Filesystem for GithubVirtualFileSystem {
         };
     }
     fn opendir(&mut self, _req: &Request, _ino: u64, _flags: i32, reply: ReplyOpen) {
-        println!("opendir(ino={}, _flags={})", _ino, _flags);
+       // println!("opendir(ino={}, _flags={})", _ino, _flags);
 
         reply.opened(_ino, _flags as u32);
     }
@@ -417,9 +424,9 @@ impl Filesystem for GithubVirtualFileSystem {
         _offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        println!("readdir(ino={}, _fh={}, _offset={})", _ino, _fh, _offset);
+       // println!("readdir(ino={}, _fh={}, _offset={})", _ino, _fh, _offset);
         let inodesPerTypes = self.getInodesPerType();
-        println!("{:?}", inodesPerTypes.repositoriesInodes);
+       // println!("{:?}", inodesPerTypes.repositoriesInodes);
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
 
         if _offset == 0 {
@@ -453,7 +460,7 @@ impl Filesystem for GithubVirtualFileSystem {
         reply.ok();
     }
     fn access(&mut self, _req: &Request, _ino: u64, _mask: i32, reply: ReplyEmpty) {
-        println!("access(ino={}, _mask={})", _ino, _mask);
+       // println!("access(ino={}, _mask={})", _ino, _mask);
         let (currentPathType, fullRepositoryName) = self.getCurrentPathType(_ino);
         match currentPathType {
             GithubVirtualFileSystemPath::UserPath => {
@@ -476,7 +483,7 @@ impl Filesystem for GithubVirtualFileSystem {
                 let args = [
                     "repo", "clone", fullRepositoryName, "--", &pathToPersist
                 ];
-                println!("args={:?}", args);
+               // println!("args={:?}", args);
                 let listOutput = Command::new("gh")
                     .args(args)
                     .output()
@@ -499,7 +506,7 @@ fn main() {
     let mountpoint = match env::args().nth(1) {
         Some(path) => path,
         None => {
-            println!("Usage: {} <MOUNTPOINT>", env::args().nth(0).unwrap());
+           // println!("Usage: {} <MOUNTPOINT>", env::args().nth(0).unwrap());
             return;
         }
     };
