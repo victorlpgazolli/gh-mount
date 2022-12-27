@@ -4,10 +4,12 @@ on: [push, pull_request]
 
 jobs:
   release:
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/victorlpgazolli/gh-mount:latest
+      credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1

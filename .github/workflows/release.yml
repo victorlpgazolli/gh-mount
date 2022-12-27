@@ -45,7 +45,7 @@ jobs:
     needs: [release-docker-image]
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/victorlpgazolli/gh-mount:latest
+      image: ghcr.io/victorlpgazolli/gh-mount
       credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
