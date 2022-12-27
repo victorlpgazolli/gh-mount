@@ -181,7 +181,6 @@ impl GithubVirtualFileSystem {
         return "";
     }
     fn addUser(&mut self, username: &str) -> () {
-        println!("{}",username);
         let args = [
             "repo", "list", username, "--json", "name", "--source", "--jq", ".[].name",
         ];
@@ -189,12 +188,17 @@ impl GithubVirtualFileSystem {
         let ignoreUsernames = [
             ".git",
             "HEAD",
-            ".hq",
+            ".hg",
+            "._.",
+            "._.DS_Store",
+            ".DS_Store",
+            ".hidden"
         ];
         
         if ignoreUsernames.contains(&username) || allUsers.contains_key(username) {
             return;
         }
+
        // println!("args={:?}", args);
         let listOutput = Command::new("gh")
             .args(args)
