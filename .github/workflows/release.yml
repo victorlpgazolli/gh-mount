@@ -42,6 +42,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
   release-linux:
+    needs: [release-docker-image]
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/victorlpgazolli/gh-mount:latest
