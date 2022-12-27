@@ -15,8 +15,6 @@ use std::process::Command;
 use time::Timespec;
 use std::option::Option;
 
-extern crate serde_json;
-
 enum GithubVirtualFileSystemPath {
     RepositoryPath,
     UserPath,
